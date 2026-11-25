@@ -7,6 +7,10 @@ const pool = require("./config/db");
 
 const app = express();
 
+const authRoutes = require('./routes/auth.routes');
+app.use('/api/auth', authRoutes);
+
+
 // Middleware
 app.use(cors());
 app.use(express.json());
