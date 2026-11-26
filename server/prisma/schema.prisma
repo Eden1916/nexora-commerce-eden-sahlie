@@ -44,5 +44,38 @@ model SellerProfile {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  products Product[]
+
   @@map("seller_profiles")
+}
+
+enum ProductStatus {
+  ACTIVE
+  HIDDEN
+}
+
+model Category {
+  id       String    @id @default(uuid()) @db.Uuid
+  name     String    @unique
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String        @id @default(uuid()) @db.Uuid
+  sellerId    String        @map("seller_id") @db.Uuid
+  categoryId  String        @map("category_id") @db.Uuid
+  name        String
+  description String?
+  price       Decimal
+  stock       Int           @default(0)
+  imageUrl    String?       @map("image_url")
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  sellerProfile SellerProfile @relation(fields: [sellerId], references: [id])
+  category      Category      @relation(fields: [categoryId], references: [id])
+
+  @@map("products")
 }
