@@ -4,7 +4,6 @@ generator client {
   output   = "../generated/prisma"
 }
 
-
 datasource db {
   provider = "postgresql"
 }
@@ -21,16 +20,46 @@ enum SellerApprovalStatus {
   REJECTED
 }
 
-model User {
-  id           String         @id @default(uuid()) @db.Uuid
-  name         String
-  email        String         @unique
-  passwordHash String         @map("password_hash")
-  role         UserRole       @default(CUSTOMER)
-  createdAt    DateTime       @default(now()) @map("created_at")
+enum ProductStatus {
+  ACTIVE
+  HIDDEN
+}
 
-  sellerProfile SellerProfile?
-  cart          Cart?
+enum DeliveryStatus {
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum FundStatus {
+  HELD
+  RELEASED
+  REFUNDED
+}
+
+enum FundTransactionType {
+  HOLD
+  RELEASE
+  REFUND
+}
+
+enum PaymentStatus {
+  PAID
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(CUSTOMER)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  sellerProfile  SellerProfile?
+  cart           Cart?
+  orders         Order[]
+  fundTransactions FundTransaction[]
 
   @@map("users")
 }
@@ -43,16 +72,11 @@ model SellerProfile {
   approvalStatus SellerApprovalStatus @default(PENDING) @map("approval_status")
   approvedAt     DateTime?            @map("approved_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  products Product[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products     Product[]
+  sellerOrders SellerOrder[]
 
   @@map("seller_profiles")
-}
-
-enum ProductStatus {
-  ACTIVE
-  HIDDEN
 }
 
 model Category {
@@ -78,30 +102,115 @@ model Product {
   sellerProfile SellerProfile @relation(fields: [sellerId], references: [id])
   category      Category      @relation(fields: [categoryId], references: [id])
   cartItems     CartItem[]
+  orderItems    OrderItem[]
 
   @@map("products")
 }
 
 model Cart {
-  id         String     @id @default(uuid()) @db.Uuid
-  customerId String     @unique @map("customer_id") @db.Uuid
-  createdAt  DateTime   @default(now()) @map("created_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @unique @map("customer_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  customer  User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  items     CartItem[]
+  customer User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    CartItem[]
 
   @@map("carts")
 }
 
 model CartItem {
-  id        String   @id @default(uuid()) @db.Uuid
-  cartId    String   @map("cart_id") @db.Uuid
-  productId String   @map("product_id") @db.Uuid
-  quantity  Int      @default(1)
+  id        String @id @default(uuid()) @db.Uuid
+  cartId    String @map("cart_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+  quantity  Int    @default(1)
 
   cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
   @@unique([cartId, productId])
   @@map("cart_items")
+}
+
+model Order {
+  id              String   @id @default(uuid()) @db.Uuid
+  customerId      String   @map("customer_id") @db.Uuid
+  shippingAddress String   @map("shipping_address")
+  totalAmount     Decimal  @map("total_amount")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  customer     User          @relation(fields: [customerId], references: [id])
+  sellerOrders SellerOrder[]
+  payment      Payment?
+
+  @@map("orders")
+}
+
+model SellerOrder {
+  id             String         @id @default(uuid()) @db.Uuid
+  orderId        String         @map("order_id") @db.Uuid
+  sellerId       String         @map("seller_id") @db.Uuid
+  subtotal       Decimal
+  deliveryStatus DeliveryStatus @default(PROCESSING) @map("delivery_status")
+  fundStatus     FundStatus     @default(HELD) @map("fund_status")
+  releasedAmount Decimal        @default(0) @map("released_amount")
+  refundedAmount Decimal        @default(0) @map("refunded_amount")
+  issueReportedAt DateTime?     @map("issue_reported_at")
+  issueReason    String?
+  shippedAt      DateTime?      @map("shipped_at")
+  deliveredAt    DateTime?      @map("delivered_at")
+
+  order            Order             @relation(fields: [orderId], references: [id])
+  sellerProfile    SellerProfile     @relation(fields: [sellerId], references: [id])
+  orderItems       OrderItem[]
+  fundTransactions FundTransaction[]
+
+  @@map("seller_orders")
+}
+
+model OrderItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  sellerOrderId String @map("seller_order_id") @db.Uuid
+  productId    String  @map("product_id") @db.Uuid
+  quantity     Int
+  unitPrice    Decimal @map("unit_price")
+
+  sellerOrder SellerOrder @relation(fields: [sellerOrderId], references: [id])
+  product     Product     @relation(fields: [productId], references: [id])
+  fundTransactions FundTransaction[]
+
+  @@map("order_items")
+}
+
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  orderId       String        @unique @map("order_id") @db.Uuid
+  method        String        @default("SIMULATED")
+  transactionRef String       @unique @map("transaction_ref")
+  amount        Decimal
+  status        PaymentStatus @default(PAID)
+  paidAt        DateTime      @default(now()) @map("paid_at")
+
+  order            Order             @relation(fields: [orderId], references: [id])
+  fundTransactions FundTransaction[]
+
+  @@map("payments")
+}
+
+model FundTransaction {
+  id              String              @id @default(uuid()) @db.Uuid
+  sellerOrderId   String              @map("seller_order_id") @db.Uuid
+  paymentId       String              @map("payment_id") @db.Uuid
+  orderItemId     String?             @map("order_item_id") @db.Uuid
+  amount          Decimal
+  transactionType FundTransactionType @map("transaction_type")
+  createdBy       String              @map("created_by") @db.Uuid
+  reason          String?
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  sellerOrder SellerOrder @relation(fields: [sellerOrderId], references: [id])
+  payment     Payment     @relation(fields: [paymentId], references: [id])
+  orderItem   OrderItem?  @relation(fields: [orderItemId], references: [id])
+  creator     User        @relation(fields: [createdBy], references: [id])
+
+  @@map("fund_transactions")
 }
